@@ -278,8 +278,9 @@ function ModalPdf({ orc, onClose }) {
   )
 }
 
-function TabNovo({ form, setForm, qtds, setQtds, itemDias, setItemDias, getDias, catF, setCatF, busca, setBusca, catalog, gerar, editingId, cancelEdit }) {
+function TabNovo({ form, setForm, qtds, setQtds, itemDias, setItemDias, getDias, catF, setCatF, busca, setBusca, catalog, gerar, editingId, cancelEdit, buscarItensIA, buscandoIA, iaResultCount, setIaResultCount }) {
   const f = (k, v) => setForm(p => ({ ...p, [k]: v }))
+  const [buscaTexto, setBuscaTexto] = useState("")
   const sel = catalog.filter(i => (qtds[i.id] || 0) > 0)
   const equip = sel.filter(i => i.cat !== "equipe")
   const equipe = sel.filter(i => i.cat === "equipe")
@@ -293,11 +294,40 @@ function TabNovo({ form, setForm, qtds, setQtds, itemDias, setItemDias, getDias,
   const total = subtotal + impV
 
   const catF2 = catalog.filter(i =>
-    (catF === "todos" || i.cat === catF) &&
+    (catF === "selecionados" ? (qtds[i.id] || 0) > 0 : (catF === "todos" || i.cat === catF)) &&
     (!busca || i.nome.toLowerCase().includes(busca.toLowerCase()))
   )
 
   return (
+    <div>
+      {/* Busca Inteligente */}
+      <div style={{ background: C1, border: `1px solid ${P}44`, borderRadius: 10, padding: 16, marginBottom: 20 }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: P, letterSpacing: "1px", marginBottom: 10 }}>BUSCA INTELIGENTE</div>
+        <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+          <div style={{ flex: 1 }}>
+            <textarea
+              placeholder={"Ex: painel de led 5x3, 2 técnicos de som, mesa de luz, logística..."}
+              value={buscaTexto}
+              onChange={e => { setBuscaTexto(e.target.value); setIaResultCount(0) }}
+              onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); buscarItensIA(buscaTexto) } }}
+              rows={2}
+              style={{ ...inputStyle, width: "100%", resize: "none", lineHeight: 1.5 }}
+            />
+            {iaResultCount > 0 && (
+              <div style={{ fontSize: 11, color: P, marginTop: 6 }}>
+                ✓ {iaResultCount} iten{iaResultCount > 1 ? "s identificados" : " identificado"} — ajuste as quantidades abaixo se necessário
+              </div>
+            )}
+          </div>
+          <button
+            onClick={() => buscarItensIA(buscaTexto)}
+            disabled={buscandoIA || !buscaTexto.trim()}
+            style={{ ...btnPrimary, padding: "10px 18px", fontSize: 13, opacity: buscandoIA || !buscaTexto.trim() ? 0.5 : 1, whiteSpace: "nowrap", minWidth: 120 }}
+          >
+            {buscandoIA ? "Buscando..." : "Identificar →"}
+          </button>
+        </div>
+      </div>
     <div style={{ display: "grid", gridTemplateColumns: "300px 1fr", gap: 20, alignItems: "start" }}>
       {/* Left: form */}
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
@@ -400,7 +430,7 @@ function TabNovo({ form, setForm, qtds, setQtds, itemDias, setItemDias, getDias,
         <div style={{ padding: "14px 16px 0", borderBottom: `1px solid ${BR}` }}>
           <input placeholder="Buscar item..." value={busca} onChange={e => setBusca(e.target.value)} style={{ ...inputStyle, width: "100%", marginBottom: 12 }} />
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", paddingBottom: 12 }}>
-            {[["todos", "Todos"], ...Object.entries(CAT_LABELS)].map(([id, label]) => (
+            {[["selecionados", "Selecionados"], ["todos", "Todos"], ...Object.entries(CAT_LABELS)].map(([id, label]) => (
               <button key={id} onClick={() => setCatF(id)} style={{
                 background: catF === id ? P + "22" : "transparent",
                 border: `1px solid ${catF === id ? P : BR}`,
@@ -467,6 +497,7 @@ function TabNovo({ form, setForm, qtds, setQtds, itemDias, setItemDias, getDias,
           }
         </div>
       </div>
+    </div>
     </div>
   )
 }
@@ -617,11 +648,13 @@ export default function App() {
   const [modal, setModal] = useState(null)
   const [loaded, setLoaded] = useState(false)
   const [editingId, setEditingId] = useState(null)
+  const [buscandoIA, setBuscandoIA] = useState(false)
+  const [iaResultCount, setIaResultCount] = useState(0)
 
   useEffect(() => {
-    function load() {
-      try { const r = localStorage.getItem("plateia_orcs"); if (r) setOrcs(JSON.parse(r)) } catch {}
-      try { const r = localStorage.getItem("plateia_cat"); if (r) setCatalog(JSON.parse(r)) } catch {}
+    async function load() {
+      try { const r = await window.storage.get("plateia_orcs"); if (r) setOrcs(JSON.parse(r.value)) } catch {}
+      try { const r = await window.storage.get("plateia_cat"); if (r) setCatalog(JSON.parse(r.value)) } catch {}
       setLoaded(false)  // set true after load
       setLoaded(true)
     }
@@ -645,7 +678,7 @@ export default function App() {
 
   async function updateStatus(id, status) {
     const novo = orcs.map(o => o.id === id ? { ...o, status: o.status === status ? null : status } : o)
-    try { localStorage.setItem("plateia_orcs", JSON.stringify(novo)) } catch {}
+    try { await window.storage.set("plateia_orcs", JSON.stringify(novo)) } catch {}
     setOrcs(novo)
   }
 
@@ -654,6 +687,54 @@ export default function App() {
     setQtds({})
     setItemDias({})
     setForm({ cliente: "", evento: "", data: hoje(), dias: 1, imposto: false })
+  }
+
+  async function buscarItensIA(texto) {
+    if (!texto.trim()) return
+    setBuscandoIA(true)
+    try {
+      const catalogoSimples = catalog.map(i => ({ id: i.id, nome: i.nome, cat: CAT_LABELS[i.cat] }))
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 1000,
+          messages: [{
+            role: "user",
+            content: `Você é um assistente de orçamentos de audiovisual da Plateia Produções.
+
+Catálogo disponível (JSON):
+${JSON.stringify(catalogoSimples)}
+
+O usuário descreveu o que precisa para um evento:
+"${texto}"
+
+Retorne APENAS um array JSON válido, sem markdown, sem explicação, sem texto adicional.
+Formato: [{"id": "item_id", "qtd": numero}]
+
+Regras:
+- Use apenas IDs que existem no catálogo acima
+- Se quantidade for mencionada, use ela. Senão, use 1
+- Interprete termos genéricos: "técnico" = tec_som, "iluminação completa" = vários itens de iluminação
+- Inclua apenas itens relevantes ao pedido`
+          }]
+        })
+      })
+      const data = await res.json()
+      const text = data.content?.[0]?.text || "[]"
+      const clean = text.replace(/```json|```/g, "").trim()
+      const itens = JSON.parse(clean)
+      const novasQtds = {}
+      itens.forEach(({ id, qtd }) => {
+        if (catalog.find(i => i.id === id)) novasQtds[id] = qtd
+      })
+      setQtds(p => ({ ...p, ...novasQtds }))
+      setIaResultCount(itens.filter(({ id }) => catalog.find(i => i.id === id)).length)
+    } catch (e) {
+      console.error("Erro IA:", e)
+    }
+    setBuscandoIA(false)
   }
 
   async function gerar() {
@@ -686,7 +767,7 @@ export default function App() {
     } else {
       novo = [orc, ...orcs]
     }
-    try { localStorage.setItem("plateia_orcs", JSON.stringify(novo)) } catch {}
+    try { await window.storage.set("plateia_orcs", JSON.stringify(novo)) } catch {}
     setOrcs(novo)
     setModal(editingId ? novo.find(o => o.id === editingId) : orc)
     setQtds({})
@@ -696,7 +777,7 @@ export default function App() {
 
   async function saveCat(c) {
     setCatalog(c)
-    try { localStorage.setItem("plateia_cat", JSON.stringify(c)) } catch {}
+    try { await window.storage.set("plateia_cat", JSON.stringify(c)) } catch {}
   }
 
   return (
@@ -739,6 +820,7 @@ export default function App() {
             busca={busca} setBusca={setBusca}
             catalog={catalog} gerar={gerar}
             editingId={editingId} cancelEdit={cancelEdit}
+            buscarItensIA={buscarItensIA} buscandoIA={buscandoIA} iaResultCount={iaResultCount} setIaResultCount={setIaResultCount}
           />
         )}
         {tab === "historico" && <TabHistorico orcs={orcs} onView={setModal} onEdit={startEdit} onStatus={updateStatus} />}
