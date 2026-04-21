@@ -652,9 +652,9 @@ export default function App() {
   const [iaResultCount, setIaResultCount] = useState(0)
 
   useEffect(() => {
-    async function load() {
-      try { const r = await window.storage.get("plateia_orcs"); if (r) setOrcs(JSON.parse(r.value)) } catch {}
-      try { const r = await window.storage.get("plateia_cat"); if (r) setCatalog(JSON.parse(r.value)) } catch {}
+    function load() {
+      try { const r = localStorage.getItem("plateia_orcs"); if (r) setOrcs(JSON.parse(r)) } catch {}
+      try { const r = localStorage.getItem("plateia_cat"); if (r) setCatalog(JSON.parse(r)) } catch {}
       setLoaded(false)  // set true after load
       setLoaded(true)
     }
@@ -678,7 +678,7 @@ export default function App() {
 
   async function updateStatus(id, status) {
     const novo = orcs.map(o => o.id === id ? { ...o, status: o.status === status ? null : status } : o)
-    try { await window.storage.set("plateia_orcs", JSON.stringify(novo)) } catch {}
+    try { localStorage.setItem("plateia_orcs", JSON.stringify(novo)) } catch {}
     setOrcs(novo)
   }
 
@@ -694,9 +694,9 @@ export default function App() {
     setBuscandoIA(true)
     try {
       const catalogoSimples = catalog.map(i => ({ id: i.id, nome: i.nome, cat: CAT_LABELS[i.cat] }))
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const res = await fetch("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514",
           max_tokens: 1000,
@@ -767,7 +767,7 @@ Regras:
     } else {
       novo = [orc, ...orcs]
     }
-    try { await window.storage.set("plateia_orcs", JSON.stringify(novo)) } catch {}
+    try { localStorage.setItem("plateia_orcs", JSON.stringify(novo)) } catch {}
     setOrcs(novo)
     setModal(editingId ? novo.find(o => o.id === editingId) : orc)
     setQtds({})
@@ -777,7 +777,7 @@ Regras:
 
   async function saveCat(c) {
     setCatalog(c)
-    try { await window.storage.set("plateia_cat", JSON.stringify(c)) } catch {}
+    try { localStorage.setItem("plateia_cat", JSON.stringify(c)) } catch {}
   }
 
   return (
